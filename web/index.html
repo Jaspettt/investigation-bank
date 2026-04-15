@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Credit MVP UI</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <main class="container">
+    <h1>Credit MVP UI</h1>
+    <p class="hint">Simple interface for required MVP functions.</p>
+
+    <section class="card">
+      <h2>Session</h2>
+      <div class="grid">
+        <label>
+          Access token
+          <textarea id="accessToken" rows="3" placeholder="Paste access token"></textarea>
+        </label>
+        <label>
+          Refresh token
+          <textarea id="refreshToken" rows="3" placeholder="Paste refresh token"></textarea>
+        </label>
+      </div>
+      <div class="actions">
+        <button id="btnRefresh">Refresh tokens</button>
+        <button id="btnLogout">Logout</button>
+        <button id="btnClearTokens" class="ghost">Clear tokens</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Authentication</h2>
+      <div class="split">
+        <form id="registerForm">
+          <h3>Register client</h3>
+          <input id="regEmail" type="email" placeholder="client@example.com" required>
+          <input id="regPassword" type="password" placeholder="Password (10+)" required>
+          <input id="regFullName" type="text" placeholder="Full name" required>
+          <button type="submit">Register</button>
+        </form>
+        <form id="loginForm">
+          <h3>Login</h3>
+          <input id="loginEmail" type="email" placeholder="email" required>
+          <input id="loginPassword" type="password" placeholder="password" required>
+          <button type="submit">Login and set tokens</button>
+        </form>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Client functions</h2>
+      <div class="split">
+        <form id="createLoanForm">
+          <h3>Create loan application</h3>
+          <input id="loanAmount" type="number" min="10000" placeholder="amount_cents" required>
+          <select id="loanCurrency" required>
+            <option value="USD">USD</option>
+            <option value="EUR">EUR</option>
+            <option value="RUB">RUB</option>
+          </select>
+          <input id="loanTerm" type="number" min="1" max="120" placeholder="term_months" required>
+          <textarea id="loanPurpose" rows="2" placeholder="Purpose" required></textarea>
+          <button type="submit">Create loan</button>
+        </form>
+        <div>
+          <h3>My loans / loan by id</h3>
+          <div class="actions">
+            <button id="btnMyLoans">Get my loans</button>
+          </div>
+          <form id="getLoanByIDForm">
+            <input id="loanId" type="number" min="1" placeholder="Loan ID" required>
+            <button type="submit">Get loan by ID</button>
+          </form>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Manager functions</h2>
+      <div class="split">
+        <div>
+          <h3>Pending applications</h3>
+          <button id="btnPending">Get pending loans</button>
+        </div>
+        <form id="decisionForm">
+          <h3>Make decision</h3>
+          <input id="decisionLoanId" type="number" min="1" placeholder="Loan ID" required>
+          <select id="decisionStatus" required>
+            <option value="approved">approved</option>
+            <option value="rejected">rejected</option>
+          </select>
+          <textarea id="decisionReason" rows="2" placeholder="Decision reason" required></textarea>
+          <button type="submit">Submit decision</button>
+        </form>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Output</h2>
+      <pre id="output">Ready.</pre>
+    </section>
+  </main>
+  <script src="/static/app.js"></script>
+</body>
+</html>
