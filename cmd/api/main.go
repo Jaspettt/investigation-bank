@@ -10,6 +10,7 @@ import (
 	"credit-mvp/internal/handlers"
 	"credit-mvp/internal/middleware"
 	"credit-mvp/internal/models"
+	"credit-mvp/internal/notify"
 	"credit-mvp/internal/security"
 
 	"github.com/go-chi/chi/v5"
@@ -25,7 +26,8 @@ func main() {
 
 	denylist := security.NewDenylist()
 	loginLimiter := security.NewLoginLimiter(cfg.MaxLoginAttempts, cfg.LoginBlockDuration)
-	h := handlers.New(conn, cfg, denylist, loginLimiter)
+	mailer := notify.NewMailer()
+	h := handlers.New(conn, cfg, denylist, loginLimiter, mailer)
 
 	router := chi.NewRouter()
 	router.Use(middleware.SecurityHeaders())
@@ -38,21 +40,44 @@ func main() {
 		r.Post("/register", h.Register)
 		r.Post("/login", h.Login)
 		r.Post("/refresh", h.Refresh)
-		r.With(middleware.AuthRequired(cfg.JWTSecret, denylist)).Post("/logout", h.Logout)
+		r.With(middleware.AuthRequired(cfg.JWTSecret, cfg.JWTIssuer, cfg.JWTAudience, denylist)).Post("/logout", h.Logout)
+	})
+
+	router.Route("/profile", func(r chi.Router) {
+		r.Use(middleware.AuthRequired(cfg.JWTSecret, cfg.JWTIssuer, cfg.JWTAudience, denylist))
+		r.Get("/", h.GetProfile)
+		r.Patch("/", h.UpdateProfile)
 	})
 
 	router.Route("/loans", func(r chi.Router) {
-		r.Use(middleware.AuthRequired(cfg.JWTSecret, denylist))
+		r.Use(middleware.AuthRequired(cfg.JWTSecret, cfg.JWTIssuer, cfg.JWTAudience, denylist))
 		r.With(middleware.RoleRequired(string(models.RoleClient))).Post("/", h.CreateLoan)
 		r.With(middleware.RoleRequired(string(models.RoleClient))).Get("/my", h.ListMyLoans)
 		r.Get("/{id}", h.GetLoan)
 	})
 
 	router.Route("/manager", func(r chi.Router) {
-		r.Use(middleware.AuthRequired(cfg.JWTSecret, denylist))
+		r.Use(middleware.AuthRequired(cfg.JWTSecret, cfg.JWTIssuer, cfg.JWTAudience, denylist))
 		r.Use(middleware.RoleRequired(string(models.RoleManager)))
 		r.Get("/loans/pending", h.ManagerListPending)
 		r.Patch("/loans/{id}/decision", h.ManagerDecision)
+		r.Get("/loans/{id}/score", h.ScoreLoan)
+		r.Get("/reports/export", h.ExportLoansCSV)
+		r.Get("/reports/checksum", h.LoanChecksum)
+	})
+
+	router.Route("/loans/{id}/documents", func(r chi.Router) {
+		r.Use(middleware.AuthRequired(cfg.JWTSecret, cfg.JWTIssuer, cfg.JWTAudience, denylist))
+		r.Post("/", h.UploadDocument)
+		r.Get("/{filename}", h.DownloadDocument)
+	})
+
+	router.Route("/admin", func(r chi.Router) {
+		r.Use(middleware.AuthRequired(cfg.JWTSecret, cfg.JWTIssuer, cfg.JWTAudience, denylist))
+		r.Use(middleware.RoleRequired(string(models.RoleManager)))
+		r.Get("/ping", h.AdminPing)
+		r.Get("/webhook-test", h.AdminWebhookTest)
+		r.Get("/stats", h.AdminStats)
 	})
 
 	webRoot := filepath.Join(".", "web")

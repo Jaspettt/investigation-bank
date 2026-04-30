@@ -7,7 +7,6 @@ import (
 	"net"
 	"net/http"
 	"net/mail"
-	"strings"
 )
 
 func decodeJSON(r *http.Request, dst any) error {
@@ -37,15 +36,13 @@ func isValidEmail(v string) bool {
 	return err == nil
 }
 
+// clientIP возвращает только сетевой адрес удалённой стороны.
+// Заголовок X-Forwarded-For намеренно не доверяется: атакующий может установить
+// произвольное значение и обойти ограничитель попыток входа по IP (CWE-290).
+// При развёртывании за доверенным обратным прокси используйте специализированный
+// middleware (например, chi-realip), который проверяет источник прокси
+// перед извлечением переданного адреса.
 func clientIP(r *http.Request) string {
-	xff := r.Header.Get("X-Forwarded-For")
-	if xff != "" {
-		parts := strings.Split(xff, ",")
-		ip := strings.TrimSpace(parts[0])
-		if ip != "" {
-			return ip
-		}
-	}
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		return r.RemoteAddr

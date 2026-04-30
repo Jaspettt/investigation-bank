@@ -14,6 +14,7 @@ import (
 	"credit-mvp/internal/handlers"
 	"credit-mvp/internal/middleware"
 	"credit-mvp/internal/models"
+	"credit-mvp/internal/notify"
 	"credit-mvp/internal/security"
 
 	"github.com/go-chi/chi/v5"
@@ -92,6 +93,8 @@ func newTestServer(t *testing.T) *testServer {
 		SeedManagerPassword:  "Manager123!",
 		SeedManagerFullName:  "Default Manager",
 		JWTSecret:            "test-secret-123",
+		JWTIssuer:            "credit-mvp-test",
+		JWTAudience:          "credit-mvp-test-api",
 		AccessTokenTTL:       15 * time.Minute,
 		RefreshTokenTTL:      24 * time.Hour,
 		MaxRequestBodyBytes:  1 << 20,
@@ -107,7 +110,8 @@ func newTestServer(t *testing.T) *testServer {
 
 	denylist := security.NewDenylist()
 	loginLimiter := security.NewLoginLimiter(cfg.MaxLoginAttempts, cfg.LoginBlockDuration)
-	h := handlers.New(conn, cfg, denylist, loginLimiter)
+	mailer := notify.NewMailer()
+	h := handlers.New(conn, cfg, denylist, loginLimiter, mailer)
 
 	r := chi.NewRouter()
 	r.Use(middleware.SecurityHeaders())
@@ -117,16 +121,16 @@ func newTestServer(t *testing.T) *testServer {
 		sr.Post("/register", h.Register)
 		sr.Post("/login", h.Login)
 		sr.Post("/refresh", h.Refresh)
-		sr.With(middleware.AuthRequired(cfg.JWTSecret, denylist)).Post("/logout", h.Logout)
+		sr.With(middleware.AuthRequired(cfg.JWTSecret, cfg.JWTIssuer, cfg.JWTAudience, denylist)).Post("/logout", h.Logout)
 	})
 	r.Route("/loans", func(sr chi.Router) {
-		sr.Use(middleware.AuthRequired(cfg.JWTSecret, denylist))
+		sr.Use(middleware.AuthRequired(cfg.JWTSecret, cfg.JWTIssuer, cfg.JWTAudience, denylist))
 		sr.With(middleware.RoleRequired(string(models.RoleClient))).Post("/", h.CreateLoan)
 		sr.With(middleware.RoleRequired(string(models.RoleClient))).Get("/my", h.ListMyLoans)
 		sr.Get("/{id}", h.GetLoan)
 	})
 	r.Route("/manager", func(sr chi.Router) {
-		sr.Use(middleware.AuthRequired(cfg.JWTSecret, denylist))
+		sr.Use(middleware.AuthRequired(cfg.JWTSecret, cfg.JWTIssuer, cfg.JWTAudience, denylist))
 		sr.Use(middleware.RoleRequired(string(models.RoleManager)))
 		sr.Get("/loans/pending", h.ManagerListPending)
 		sr.Patch("/loans/{id}/decision", h.ManagerDecision)

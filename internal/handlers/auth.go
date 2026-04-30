@@ -189,7 +189,14 @@ func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) issueTokens(userID uint, role string) (accessToken string, refreshToken string, err error) {
-	accessToken, _, err = security.BuildAccessToken(h.Config.JWTSecret, userID, role, h.Config.AccessTokenTTL)
+	accessToken, _, err = security.BuildAccessToken(
+		h.Config.JWTSecret,
+		h.Config.JWTIssuer,
+		h.Config.JWTAudience,
+		userID,
+		role,
+		h.Config.AccessTokenTTL,
+	)
 	if err != nil {
 		return "", "", err
 	}

@@ -19,7 +19,7 @@ const (
 	CtxEXP    ctxKey = "auth_exp"
 )
 
-func AuthRequired(jwtSecret string, denylist *security.Denylist) func(http.Handler) http.Handler {
+func AuthRequired(jwtSecret, jwtIssuer, jwtAudience string, denylist *security.Denylist) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			h := r.Header.Get("Authorization")
@@ -29,7 +29,7 @@ func AuthRequired(jwtSecret string, denylist *security.Denylist) func(http.Handl
 			}
 
 			raw := strings.TrimPrefix(h, "Bearer ")
-			claims, err := security.ParseAccessToken(jwtSecret, raw)
+			claims, err := security.ParseAccessToken(jwtSecret, jwtIssuer, jwtAudience, raw)
 			if err != nil {
 				writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
 				return

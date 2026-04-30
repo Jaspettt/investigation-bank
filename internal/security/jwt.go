@@ -17,7 +17,7 @@ type AccessClaims struct {
 	jwt.RegisteredClaims
 }
 
-func BuildAccessToken(secret string, userID uint, role string, ttl time.Duration) (string, string, error) {
+func BuildAccessToken(secret, issuer, audience string, userID uint, role string, ttl time.Duration) (string, string, error) {
 	now := time.Now().UTC()
 	jtiRaw, err := randomToken(32)
 	if err != nil {
@@ -28,6 +28,8 @@ func BuildAccessToken(secret string, userID uint, role string, ttl time.Duration
 		Role: role,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   uintToString(userID),
+			Issuer:    issuer,
+			Audience:  jwt.ClaimStrings{audience},
 			IssuedAt:  jwt.NewNumericDate(now),
 			ExpiresAt: jwt.NewNumericDate(now.Add(ttl)),
 			ID:        jtiRaw,
@@ -42,13 +44,13 @@ func BuildAccessToken(secret string, userID uint, role string, ttl time.Duration
 	return signed, jtiRaw, nil
 }
 
-func ParseAccessToken(secret, rawToken string) (*AccessClaims, error) {
+func ParseAccessToken(secret, issuer, audience, rawToken string) (*AccessClaims, error) {
 	token, err := jwt.ParseWithClaims(rawToken, &AccessClaims{}, func(token *jwt.Token) (interface{}, error) {
 		if token.Method.Alg() != jwt.SigningMethodHS256.Alg() {
 			return nil, errors.New("unexpected jwt algorithm")
 		}
 		return []byte(secret), nil
-	})
+	}, jwt.WithIssuer(issuer), jwt.WithAudience(audience))
 	if err != nil {
 		return nil, err
 	}

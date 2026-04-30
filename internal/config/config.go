@@ -18,6 +18,8 @@ type Config struct {
 	SeedManagerPassword  string
 	SeedManagerFullName  string
 	JWTSecret            string
+	JWTIssuer            string
+	JWTAudience          string
 	ReadHeaderTimeout    time.Duration
 	ReadTimeout          time.Duration
 	WriteTimeout         time.Duration
@@ -42,13 +44,15 @@ func Load() Config {
 		SeedManagerPassword:  getRequired("SEED_MANAGER_PASSWORD"),
 		SeedManagerFullName:  getOrDefault("SEED_MANAGER_FULL_NAME", "Default Manager"),
 		JWTSecret:            getRequired("JWT_SECRET"),
+		JWTIssuer:            getOrDefault("JWT_ISSUER", "credit-mvp"),
+		JWTAudience:          getOrDefault("JWT_AUDIENCE", "credit-mvp-api"),
 		ReadHeaderTimeout:    getDuration("READ_HEADER_TIMEOUT", 5*time.Second),
 		ReadTimeout:          getDuration("READ_TIMEOUT", 10*time.Second),
 		WriteTimeout:         getDuration("WRITE_TIMEOUT", 15*time.Second),
 		IdleTimeout:          getDuration("IDLE_TIMEOUT", 30*time.Second),
 		AccessTokenTTL:       getDuration("ACCESS_TOKEN_TTL", 15*time.Minute),
 		RefreshTokenTTL:      getDuration("REFRESH_TOKEN_TTL", 24*time.Hour),
-		MaxRequestBodyBytes:  getInt64("MAX_REQUEST_BODY_BYTES", 1<<20), // 1MB for MVP
+		MaxRequestBodyBytes:  getInt64("MAX_REQUEST_BODY_BYTES", 1<<20), // 1 мегабайт
 		MaxLoginAttempts:     getInt("MAX_LOGIN_ATTEMPTS", 5),
 		LoginBlockDuration:   getDuration("LOGIN_BLOCK_DURATION", 15*time.Minute),
 		ManagerDecisionScope: getOrDefault("MANAGER_DECISION_SCOPE", "all"),
