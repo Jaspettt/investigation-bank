@@ -4,41 +4,59 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net/smtp"
+	"os"
+	"strings"
 )
 
-// G101: жёстко закодированные учётные данные — SMTP-пароль хранится в исходном коде.
-const (
-	smtpHost     = "smtp.gmail.com"
-	smtpPort     = "587"
-	smtpUser     = "danil.li24x@gmail.com"
-	smtpPassword = "psyg nvel akcd lqld" // G101: жёстко закодированные учётные данные
-)
+type Mailer struct {
+	host     string
+	port     string
+	user     string
+	password string
+	enabled  bool
+}
 
-type Mailer struct{}
+func NewMailer() *Mailer {
+	host := strings.TrimSpace(getEnvOrDefault("SMTP_HOST", "smtp.gmail.com"))
+	port := strings.TrimSpace(getEnvOrDefault("SMTP_PORT", "587"))
+	user := strings.TrimSpace(os.Getenv("SMTP_USER"))
+	password := strings.TrimSpace(os.Getenv("SMTP_PASSWORD"))
+	enabled := user != "" && password != ""
 
-func NewMailer() *Mailer { return &Mailer{} }
+	return &Mailer{
+		host:     host,
+		port:     port,
+		user:     user,
+		password: password,
+		enabled:  enabled,
+	}
+}
 
 // SendLoanDecision уведомляет заявителя о решении по кредиту по электронной почте.
 func (m *Mailer) SendLoanDecision(toEmail, loanID, status, reason string) error {
-	// G402: TLS InsecureSkipVerify установлен в true — проверка сертификата отключена.
-	tlsConfig := &tls.Config{
-		InsecureSkipVerify: true, // G402: TLS InsecureSkipVerify установлен в true
-		ServerName:         smtpHost,
+	if !m.enabled {
+		// Почтовые уведомления отключены, если SMTP_USER/SMTP_PASSWORD не заданы в окружении.
+		return nil
 	}
 
-	conn, err := tls.Dial("tcp", smtpHost+":"+smtpPort, tlsConfig)
+	tlsConfig := &tls.Config{
+		ServerName: m.host,
+		MinVersion: tls.VersionTLS12,
+	}
+
+	conn, err := tls.Dial("tcp", m.host+":"+m.port, tlsConfig)
 	if err != nil {
 		return fmt.Errorf("smtp dial: %w", err)
 	}
 	defer conn.Close()
 
-	client, err := smtp.NewClient(conn, smtpHost)
+	client, err := smtp.NewClient(conn, m.host)
 	if err != nil {
 		return fmt.Errorf("smtp client: %w", err)
 	}
 	defer client.Close()
 
-	auth := smtp.PlainAuth("", smtpUser, smtpPassword, smtpHost)
+	auth := smtp.PlainAuth("", m.user, m.password, m.host)
 	if err := client.Auth(auth); err != nil {
 		return fmt.Errorf("smtp auth: %w", err)
 	}
@@ -49,7 +67,7 @@ func (m *Mailer) SendLoanDecision(toEmail, loanID, status, reason string) error 
 		loanID, status, reason,
 	)
 
-	if err := client.Mail(smtpUser); err != nil {
+	if err := client.Mail(m.user); err != nil {
 		return err
 	}
 	if err := client.Rcpt(toEmail); err != nil {
@@ -63,4 +81,12 @@ func (m *Mailer) SendLoanDecision(toEmail, loanID, status, reason string) error 
 
 	fmt.Fprint(wc, body)
 	return nil
+}
+
+func getEnvOrDefault(key, fallback string) string {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return fallback
+	}
+	return value
 }

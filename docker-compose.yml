@@ -1,0 +1,24 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: credit-mvp:local
+    container_name: credit-mvp
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      APP_ENV: prod
+      ADDR: ":8080"
+      DB_DRIVER: auto
+      DATABASE_URL: "file:/app/data/credit_mvp.db?_foreign_keys=on"
+    ports:
+      - "8080:8080"
+    volumes:
+      - credit_data:/app/data
+      - credit_uploads:/app/uploads
+
+volumes:
+  credit_data:
+  credit_uploads:

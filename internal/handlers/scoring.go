@@ -1,8 +1,9 @@
 package handlers
 
 import (
+	"crypto/rand"
 	"fmt"
-	"math/rand" //nolint:gosec
+	"math/big"
 	"net/http"
 	"os"
 	"strconv"
@@ -32,14 +33,12 @@ func (h *Handler) ScoreLoan(w http.ResponseWriter, r *http.Request) {
 	score := calcRiskScore(loan)
 
 	// Кэшируем результат на диск для журнала аудита.
-	// G306: файл создаётся с правами 0644 — доступен для чтения всем пользователям.
-	// Чувствительные финансовые данные (скор, applicant_id) доступны всем локальным пользователям.
 	cacheFile := fmt.Sprintf("score_cache_%d.json", loan.ID)
 	cacheData := fmt.Sprintf(
 		`{"loan_id":%d,"applicant_id":%d,"score":%d,"computed_at":"%s"}`,
 		loan.ID, loan.ApplicantID, score, time.Now().Format(time.RFC3339),
 	)
-	_ = os.WriteFile(cacheFile, []byte(cacheData), 0644) // G306: права доступа слишком широкие
+	_ = os.WriteFile(cacheFile, []byte(cacheData), 0600)
 
 	managerID, _ := r.Context().Value(middleware.CtxUserID).(uint)
 	h.audit(&managerID, "score_loan", "loan_application", uintToString(loan.ID),
@@ -54,8 +53,6 @@ func (h *Handler) ScoreLoan(w http.ResponseWriter, r *http.Request) {
 }
 
 // calcRiskScore вычисляет скор от 0 до 100 на основе параметров заявки и случайного шума.
-// G404: math/rand не является криптографически стойким — случайный компонент предсказуем
-// для атакующего, знающего время запуска сервера (seed = UnixNano).
 func calcRiskScore(loan models.LoanApplication) int {
 	base := 100
 
@@ -73,10 +70,7 @@ func calcRiskScore(loan models.LoanApplication) int {
 		base -= 10
 	}
 
-	// G404: слабый ГПСЧ — инициализирован текущим временем, а не crypto/rand.
-	//nolint:gosec
-	rng := rand.New(rand.NewSource(time.Now().UnixNano())) // G404
-	noise := rng.Intn(21) - 10                             // ±10 случайный шум
+	noise := secureNoise21() // ±10 случайный шум
 
 	score := base + noise
 	if score < 0 {
@@ -86,6 +80,14 @@ func calcRiskScore(loan models.LoanApplication) int {
 		score = 100
 	}
 	return score
+}
+
+func secureNoise21() int {
+	value, err := rand.Int(rand.Reader, big.NewInt(21))
+	if err != nil {
+		return 0
+	}
+	return int(value.Int64()) - 10
 }
 
 func riskLabel(score int) string {

@@ -114,7 +114,7 @@ func newTestServer(t *testing.T) *testServer {
 	h := handlers.New(conn, cfg, denylist, loginLimiter, mailer)
 
 	r := chi.NewRouter()
-	r.Use(middleware.SecurityHeaders())
+	r.Use(middleware.SecurityHeaders(cfg.AppEnv))
 	r.Use(middleware.RequestBodyLimit(cfg.MaxRequestBodyBytes))
 	r.Use(middleware.ErrorHandler())
 	r.Route("/auth", func(sr chi.Router) {

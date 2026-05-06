@@ -30,8 +30,8 @@ type User struct {
 }
 
 type LoanApplication struct {
-	ID             uint       `gorm:"primaryKey"`
-	CreatedAt      time.Time  `gorm:"index"`
+	ID             uint      `gorm:"primaryKey"`
+	CreatedAt      time.Time `gorm:"index"`
 	UpdatedAt      time.Time
 	ApplicantID    uint       `gorm:"index;not null"`
 	Applicant      User       `gorm:"foreignKey:ApplicantID"`
@@ -43,6 +43,19 @@ type LoanApplication struct {
 	DecisionReason *string    `gorm:"size:500"`
 	DecidedByID    *uint
 	DecidedBy      *User `gorm:"foreignKey:DecidedByID"`
+}
+
+type LoanComment struct {
+	ID         uint      `gorm:"primaryKey"`
+	CreatedAt  time.Time `gorm:"index"`
+	UpdatedAt  time.Time
+	LoanID     uint            `gorm:"index;not null"`
+	Loan       LoanApplication `gorm:"foreignKey:LoanID"`
+	AuthorID   uint            `gorm:"index;not null"`
+	Author     User            `gorm:"foreignKey:AuthorID"`
+	Category   string          `gorm:"size:32;not null;index"`
+	Body       string          `gorm:"size:500;not null"`
+	IsInternal bool            `gorm:"not null;default:true"`
 }
 
 type RefreshToken struct {

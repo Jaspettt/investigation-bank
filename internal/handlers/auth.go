@@ -75,11 +75,13 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 
 	email := strings.ToLower(strings.TrimSpace(req.Email))
 	if !isValidEmail(email) || len(req.Password) < 10 || len(req.Password) > 72 {
+		h.audit(nil, "login_rejected", "user", email, false, "invalid credential format", clientIP(r))
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid credentials"})
 		return
 	}
 	key := clientIP(r) + "|" + email
 	if h.LoginLimiter.IsBlocked(key) {
+		h.audit(nil, "login_blocked", "user", email, false, "too many attempts", clientIP(r))
 		writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "too many attempts, try later"})
 		return
 	}
@@ -87,11 +89,13 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	var user models.User
 	if err := h.DB.Where("email = ?", email).First(&user).Error; err != nil {
 		h.LoginLimiter.RegisterFailure(key)
+		h.audit(nil, "login_failed", "user", email, false, "invalid credentials", clientIP(r))
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid credentials"})
 		return
 	}
 	if err := security.CheckPassword(user.PasswordHash, req.Password); err != nil {
 		h.LoginLimiter.RegisterFailure(key)
+		h.audit(nil, "login_failed", "user", email, false, "invalid credentials", clientIP(r))
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid credentials"})
 		return
 	}
