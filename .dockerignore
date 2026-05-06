@@ -1,0 +1,13 @@
+.git
+.gitignore
+.env
+*.db
+*.db-shm
+*.db-wal
+bin
+dist
+coverage.out
+*.test
+uploads
+flowchart.png
+architecture.png
