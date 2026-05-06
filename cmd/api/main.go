@@ -30,7 +30,7 @@ func main() {
 	h := handlers.New(conn, cfg, denylist, loginLimiter, mailer)
 
 	router := chi.NewRouter()
-	router.Use(middleware.SecurityHeaders())
+	router.Use(middleware.SecurityHeaders(cfg.AppEnv))
 	router.Use(middleware.RequestBodyLimit(cfg.MaxRequestBodyBytes))
 	router.Use(middleware.ErrorHandler())
 
@@ -72,6 +72,12 @@ func main() {
 		r.Get("/{filename}", h.DownloadDocument)
 	})
 
+	router.Route("/loans/{id}/comments", func(r chi.Router) {
+		r.Use(middleware.AuthRequired(cfg.JWTSecret, cfg.JWTIssuer, cfg.JWTAudience, denylist))
+		r.Get("/", h.ListLoanComments)
+		r.Post("/", h.CreateLoanComment)
+	})
+
 	router.Route("/admin", func(r chi.Router) {
 		r.Use(middleware.AuthRequired(cfg.JWTSecret, cfg.JWTIssuer, cfg.JWTAudience, denylist))
 		r.Use(middleware.RoleRequired(string(models.RoleManager)))
@@ -81,11 +87,21 @@ func main() {
 	})
 
 	webRoot := filepath.Join(".", "web")
-	router.Get("/", func(w http.ResponseWriter, r *http.Request) {
+	serveUI := func(w http.ResponseWriter, r *http.Request) {
+		// Prevent stale cached HTML from older UI versions (for example, pages that referenced external CDN scripts).
+		w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate")
+		w.Header().Set("Pragma", "no-cache")
+		w.Header().Set("Expires", "0")
 		http.ServeFile(w, r, filepath.Join(webRoot, "index.html"))
+	}
+	router.Get("/", func(w http.ResponseWriter, r *http.Request) {
+		serveUI(w, r)
 	})
 	router.Get("/ui", func(w http.ResponseWriter, r *http.Request) {
-		http.ServeFile(w, r, filepath.Join(webRoot, "index.html"))
+		serveUI(w, r)
+	})
+	router.Get("/ui/*", func(w http.ResponseWriter, r *http.Request) {
+		serveUI(w, r)
 	})
 	router.Handle("/static/*", http.StripPrefix("/static/", http.FileServer(http.Dir(webRoot))))
 

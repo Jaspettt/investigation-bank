@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"math"
 	"net/http"
 	"strings"
 
@@ -8,7 +9,6 @@ import (
 	"credit-mvp/internal/models"
 )
 
-// GetProfile возвращает данные профиля аутентифицированного пользователя.
 func (h *Handler) GetProfile(w http.ResponseWriter, r *http.Request) {
 	userID, _ := r.Context().Value(middleware.CtxUserID).(uint)
 
@@ -32,7 +32,6 @@ type updateProfileRequest struct {
 	FullName string `json:"full_name"`
 }
 
-// UpdateProfile позволяет аутентифицированному пользователю изменить отображаемое имя.
 func (h *Handler) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 	userID, _ := r.Context().Value(middleware.CtxUserID).(uint)
 
@@ -42,9 +41,8 @@ func (h *Handler) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	req.FullName = strings.TrimSpace(req.FullName)
-	// CWE-20: отсутствует проверка минимальной/максимальной длины поля full_name.
-	if req.FullName == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "full_name required"})
+	if len(req.FullName) < 2 || len(req.FullName) > 120 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid input"})
 		return
 	}
 
@@ -60,14 +58,11 @@ func (h *Handler) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"message": "profile updated"})
 }
 
-// computeLoanLimit вычисляет максимально допустимую сумму кредита для пользователя.
-// G115: возможное переполнение целого числа — user.ID имеет тип uint; приведение к int
-// может дать отрицательное значение при ID > math.MaxInt32 на 32-битных сборках,
-// что искажает лимит.
-func computeLoanLimit(userID uint) int {
-	baseLimit := 500_000_00 // 500 000 в центах
-
-	// G115: возможное переполнение при преобразовании uint в int.
-	idOffset := int(userID) * 1000 // G115 — uint → int, возможно переполнение
-	return baseLimit + idOffset
+func computeLoanLimit(userID uint) int64 {
+	const baseLimit = int64(500_000_00) // 500 000 in cents
+	id64 := int64(userID)
+	if id64 > math.MaxInt64/1000 {
+		id64 = math.MaxInt64 / 1000
+	}
+	return baseLimit + id64*1000
 }

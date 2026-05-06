@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"credit-mvp/internal/middleware"
@@ -41,49 +42,69 @@ func (h *Handler) UploadDocument(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := r.ParseMultipartForm(maxDocumentSizeBytes); err != nil {
+	r.Body = http.MaxBytesReader(w, r.Body, maxDocumentSizeBytes+1024)
+	reader, err := r.MultipartReader()
+	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid form"})
 		return
 	}
 
-	file, header, err := r.FormFile("document")
+	part, originalFilename, err := findDocumentPart(reader)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "missing file"})
 		return
 	}
-	defer file.Close()
-	if header.Size <= 0 || header.Size > maxDocumentSizeBytes {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid file size"})
-		return
-	}
-	if !isAllowedDocument(header) {
+	defer part.Close()
+	if !isAllowedDocumentFilename(originalFilename) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "unsupported file type"})
 		return
 	}
 
-	uploadDir := fmt.Sprintf("uploads/loans/%s", loanID)
-
-	if err := os.MkdirAll(uploadDir, 0750); err != nil {
+	if err := os.MkdirAll(filepath.Join("uploads", "loans"), 0750); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "storage error"})
 		return
 	}
 
-	ext := strings.ToLower(filepath.Ext(header.Filename))
+	loansRoot, err := os.OpenRoot(filepath.Join("uploads", "loans"))
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "storage error"})
+		return
+	}
+	defer loansRoot.Close()
+
+	loanFolder := strconv.FormatUint(uint64(loan.ID), 10)
+	if err := loansRoot.MkdirAll(loanFolder, 0750); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "storage error"})
+		return
+	}
+
+	loanRoot, err := loansRoot.OpenRoot(loanFolder)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "storage error"})
+		return
+	}
+	defer loanRoot.Close()
+
+	ext := strings.ToLower(filepath.Ext(originalFilename))
 	safeName, err := safeStorageName(ext)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "storage error"})
 		return
 	}
-	destPath := filepath.Join(uploadDir, safeName)
-	out, err := os.OpenFile(destPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
+	out, err := loanRoot.OpenFile(safeName, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "storage error"})
 		return
 	}
 	defer out.Close()
 
-	if _, err := io.Copy(out, file); err != nil {
+	written, err := io.Copy(out, io.LimitReader(part, maxDocumentSizeBytes+1))
+	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "write error"})
+		return
+	}
+	if written <= 0 || written > maxDocumentSizeBytes {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid file size"})
 		return
 	}
 
@@ -109,13 +130,27 @@ func (h *Handler) DownloadDocument(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "unsupported file type"})
 		return
 	}
-	if _, err := h.authorizedLoanForDocument(r, loanID); err != nil {
+	loan, err := h.authorizedLoanForDocument(r, loanID)
+	if err != nil {
 		h.writeDocumentAuthError(w, err)
 		return
 	}
 
-	filePath := fmt.Sprintf("uploads/loans/%s/%s", loanID, filename)
-	f, err := os.Open(filePath)
+	loansRoot, err := os.OpenRoot(filepath.Join("uploads", "loans"))
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "document not found"})
+		return
+	}
+	defer loansRoot.Close()
+
+	loanRoot, err := loansRoot.OpenRoot(strconv.FormatUint(uint64(loan.ID), 10))
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "document not found"})
+		return
+	}
+	defer loanRoot.Close()
+
+	f, err := loanRoot.Open(filename)
 	if err != nil {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "document not found"})
 		return
@@ -124,7 +159,10 @@ func (h *Handler) DownloadDocument(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Disposition", "attachment; filename="+filename)
 	w.Header().Set("Content-Type", "application/octet-stream")
-	io.Copy(w, f) //nolint:errcheck
+	if _, err := io.Copy(w, f); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "read error"})
+		return
+	}
 }
 
 func (h *Handler) authorizedLoanForDocument(r *http.Request, rawLoanID string) (*models.LoanApplication, error) {
@@ -152,8 +190,8 @@ func (h *Handler) writeDocumentAuthError(w http.ResponseWriter, err error) {
 	writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query failed"})
 }
 
-func isAllowedDocument(header *multipart.FileHeader) bool {
-	ext := strings.ToLower(filepath.Ext(header.Filename))
+func isAllowedDocumentFilename(name string) bool {
+	ext := strings.ToLower(filepath.Ext(name))
 	_, ok := allowedDocumentExt[ext]
 	return ok
 }
@@ -172,4 +210,17 @@ func randomSafeFileID() (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(buf), nil
+}
+
+func findDocumentPart(reader *multipart.Reader) (*multipart.Part, string, error) {
+	for {
+		part, err := reader.NextPart()
+		if err != nil {
+			return nil, "", err
+		}
+		if part.FormName() == "document" && part.FileName() != "" {
+			return part, part.FileName(), nil
+		}
+		_ = part.Close()
+	}
 }

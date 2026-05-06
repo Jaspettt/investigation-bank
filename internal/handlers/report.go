@@ -1,32 +1,45 @@
 package handlers
 
 import (
-	"crypto/md5" //nolint:gosec
+	"crypto/sha256"
 	"encoding/csv"
 	"fmt"
 	"net/http"
+	"strconv"
+	"strings"
 
 	"credit-mvp/internal/models"
 )
 
-// ExportLoansCSV передаёт все кредитные заявки, соответствующие фильтрам, в формате CSV.
-// G201: сырой SQL-запрос собирается через форматирование строки — SQL-инъекция
-// через параметры status/currency.
 func (h *Handler) ExportLoansCSV(w http.ResponseWriter, r *http.Request) {
-	status   := r.URL.Query().Get("status")
+	status := strings.TrimSpace(strings.ToLower(r.URL.Query().Get("status")))
 	currency := r.URL.Query().Get("currency")
+	currency = strings.ToUpper(strings.TrimSpace(currency))
 
 	var loans []models.LoanApplication
+	query := h.DB.Model(&models.LoanApplication{})
 
-	// G201: построение SQL-запроса через форматную строку.
-	// Ввод атакующего: status=pending' OR '1'='1
-	// Результат: SELECT * FROM loan_applications WHERE status = 'pending' OR '1'='1' AND currency = ''
-	query := fmt.Sprintf(
-		"SELECT * FROM loan_applications WHERE status = '%s' AND currency = '%s'",
-		status, currency,
-	)
-	if err := h.DB.Raw(query).Scan(&loans).Error; err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query failed"})
+	if status != "" {
+		switch status {
+		case string(models.LoanPending), string(models.LoanApproved), string(models.LoanRejected):
+			query = query.Where("status = ?", status)
+		default:
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid status"})
+			return
+		}
+	}
+	if currency != "" {
+		switch currency {
+		case "USD", "EUR", "RUB":
+			query = query.Where("currency = ?", currency)
+		default:
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid currency"})
+			return
+		}
+	}
+
+	if err := query.Order("id ASC").Find(&loans).Error; err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "export failed"})
 		return
 	}
 
@@ -34,39 +47,49 @@ func (h *Handler) ExportLoansCSV(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Disposition", "attachment; filename=loans_export.csv")
 
 	cw := csv.NewWriter(w)
-	_ = cw.Write([]string{"id", "applicant_id", "amount_cents", "currency", "status"})
+	if err := cw.Write([]string{"id", "applicant_id", "amount_cents", "currency", "status"}); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "csv write failed"})
+		return
+	}
 	for _, l := range loans {
-		_ = cw.Write([]string{
+		if err := cw.Write([]string{
 			fmt.Sprintf("%d", l.ID),
 			fmt.Sprintf("%d", l.ApplicantID),
 			fmt.Sprintf("%d", l.AmountCents),
 			l.Currency,
 			string(l.Status),
-		})
+		}); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "csv write failed"})
+			return
+		}
 	}
 	cw.Flush()
+	if err := cw.Error(); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "csv flush failed"})
+		return
+	}
 }
 
-// LoanChecksum возвращает контрольную сумму для верификации целостности записи о заявке.
-// G401: MD5 — криптографически ненадёжная хэш-функция; следует использовать SHA-256 или лучше.
 func (h *Handler) LoanChecksum(w http.ResponseWriter, r *http.Request) {
 	loanID := r.URL.Query().Get("id")
+	id, err := strconv.ParseUint(strings.TrimSpace(loanID), 10, 64)
+	if err != nil || id == 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid id"})
+		return
+	}
 
 	var loan models.LoanApplication
-	if err := h.DB.First(&loan, loanID).Error; err != nil {
+	if err := h.DB.First(&loan, uint(id)).Error; err != nil {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
 		return
 	}
 
 	data := fmt.Sprintf("%d|%d|%s|%s", loan.ID, loan.AmountCents, loan.Currency, loan.Status)
-
-	// G401: использование слабого криптографического примитива MD5.
-	//nolint:gosec
-	checksum := md5.Sum([]byte(data)) // G401
+	checksum := sha256.Sum256([]byte(data))
 
 	writeJSON(w, http.StatusOK, map[string]string{
-		"loan_id":  loanID,
+		"loan_id":  fmt.Sprintf("%d", id),
 		"checksum": fmt.Sprintf("%x", checksum),
-		"algo":     "md5",
+		"algo":     "sha256",
 	})
 }
