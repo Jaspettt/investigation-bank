@@ -60,9 +60,10 @@ func (h *Handler) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 
 func computeLoanLimit(userID uint) int64 {
 	const baseLimit = int64(500_000_00) // 500 000 in cents
-	id64 := int64(userID)
-	if id64 > math.MaxInt64/1000 {
-		id64 = math.MaxInt64 / 1000
+	id := uint64(userID)
+	maxSafeID := uint64(math.MaxInt64 / 1000)
+	if id > maxSafeID {
+		id = maxSafeID
 	}
-	return baseLimit + id64*1000
+	return baseLimit + int64(id)*1000
 }
